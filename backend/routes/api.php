@@ -2,12 +2,15 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AiCodeController;
+use App\Http\Controllers\AuthController;
 
-/*
-|--------------------------------------------------------------------------
-| API Routes
-|--------------------------------------------------------------------------
-*/
+/* Rrugët Publike (Pa Login) */
+Route::post('/register', [AuthController::class, 'register']);
+Route::post('/login', [AuthController::class, 'login']);
 
-// Rruga kryesore ku do të dërgohen pyetjet (POST Method)
-Route::post('/ai/process', [AiCodeController::class, 'processPrompt']);
+/* Rrugët e Mbrojtura (Kërkojnë Bearer Token të vlefshëm) */
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/ai/process', [AiCodeController::class, 'processPrompt']);
+    Route::get('/ai/history', [AiCodeController::class, 'getHistory']);
+    Route::post('/logout', [AuthController::class, 'logout']);
+});

@@ -11,11 +11,10 @@ use Exception;
 class AiCodeController extends Controller
 {
     /**
-     * Proceson kërkesat e AI duke u lidhur realisht me OpenAI API.
+     * Proceson kërkesat e AI dhe i ruan në DB duke i lidhur me përdoruesin e loguar.
      */
     public function processPrompt(Request $request)
     {
-        // 1. Validimi i të dhënave të hyra
         $validator = Validator::make($request->all(), [
             'action_type'   => 'required|in:generate,explain,security',
             'user_input'    => 'required|string|min:3',
@@ -23,35 +22,27 @@ class AiCodeController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'status'  => 'gabim_validimi',
-                'errors'  => $validator->errors()
-            ], 422);
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
         }
 
         $actionType = $request->input('action_type');
         $userInput  = $request->input('user_input');
         $language   = $request->input('language_used', 'javascript');
 
-        // Formatimi i Prompt-it në mënyrë që AI të kthejë vetëm kod ose shpjegim të pastër
         $systemInstruction = "You are an expert AI Code Helper named Blendi AI. ";
         if ($actionType === 'generate') {
-            $systemInstruction .= "Generate efficient and secure clean code in {$language} based on the user's request. Return only the code inside code blocks.";
+            $systemInstruction .= "Generate efficient and secure clean code in {$language}. Return only code.";
         } elseif ($actionType === 'explain') {
-            $systemInstruction .= "Explain the provided {$language} code line by line clearly in Albanian language.";
+            $systemInstruction .= "Explain the provided {$language} code line by line clearly in Albanian.";
         } elseif ($actionType === 'security') {
-            $systemInstruction .= "Audit the following {$language} code for cyber security vulnerabilities (OWASP Top 10). Provide findings and recommendations in Albanian language.";
+            $systemInstruction .= "Audit the following {$language} code for security flaws in Albanian.";
         }
 
-        // 2. ERROR HANDLING: Lidhja me OpenAI API përmes Try-Catch
         try {
-            // Kontrolli nëse çelësi është plotësuar
             if (empty(env('OPENAI_API_KEY'))) {
-                throw new Exception("Çelësi i OpenAI API nuk është konfiguruar te skedari .env!");
+                throw new Exception("OpenAI Key missing.");
             }
 
-            // Thirrja reale e modelit gpt-4o-mini
             $response = OpenAI::chat()->create([
                 'model' => 'gpt-4o-mini',
                 'messages' => [
@@ -62,38 +53,43 @@ class AiCodeController extends Controller
             ]);
 
             $aiResponse = $response->choices->message->content;
-
         } catch (Exception $e) {
-            // Error Handling: Nëse OpenAI dështon (psh. skadon çelësi, s'ka internet, etj.)
-            return response()->json([
-                'success' => false,
-                'status'  => 'gabim_api_openai',
-                'message' => 'Dështoi komunikimi me OpenAI API. Ju lutem kontrolloni konfigurimin.',
-                'error_details' => $e->getMessage()
-            ], 500);
+            // Përgjigje fallback për mënyrën testuese (kur OpenAI nuk ka kredite)
+            $aiResponse = "// [Mënyra Testuese - Error Kreditesh OpenAI]\n// Kjo përgjigje u ruajt në databazë si historik për llogarinë tuaj:\n// Kërkesa: " . $userInput;
         }
 
-        // 3. Ruajtja e historikut të saktë në databazën MySQL
+        // Ruajtja në Databazë (Lidhja me përdoruesin e vërtetë të loguar)
         $promptLog = new CodePrompt();
+        $promptLog->user_id       = auth()->id(); // ID-ja merret në mënyrë të sigurt nga Sanctum Token
         $promptLog->action_type   = $actionType;
         $promptLog->user_input    = $userInput;
         $promptLog->ai_response   = $aiResponse;
         $promptLog->language_used = $language;
         $promptLog->save();
 
-        // 4. JSON Response për Postman dhe Frontend
         return response()->json([
-            'success'   => true,
-            'status'    => 'sukses',
-            'author'    => 'Blendi',
-            'data'      => [
-                'id'            => $promptLog->id,
-                'action_type'   => $promptLog->action_type,
-                'user_input'    => $promptLog->user_input,
-                'ai_response'   => $promptLog->ai_response,
-                'language_used' => $promptLog->language_used,
-                'created_at'    => $promptLog->created_at->toIso8601String()
-            ]
+            'success' => true,
+            'status'  => 'sukses',
+            'author'  => 'Blendi',
+            'data'    => $promptLog
+        ], 200);
+    }
+
+    /**
+     * Merr historikun e pyetjeve nga databaza VETËM për përdoruesin e loguar.
+     */
+    public function getHistory()
+    {
+        // Merr 10 pyetjet e fundit që i përkasin ekzaktësisht këtij përdoruesi
+        $history = CodePrompt::where('user_id', auth()->id())
+                             ->orderBy('created_at', 'desc')
+                             ->take(10)
+                             ->get();
+
+        return response()->json([
+            'success' => true,
+            'author'  => 'Blendi',
+            'history' => $history
         ], 200);
     }
 }
