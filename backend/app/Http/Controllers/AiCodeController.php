@@ -3,93 +3,145 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Models\CodePrompt;
-use Illuminate\Support\Facades\Validator;
-use OpenAI\Laravel\Facades\OpenAI;
-use Exception;
+use Illuminate\Support\Facades\Http;
 
 class AiCodeController extends Controller
 {
-    /**
-     * Proceson kërkesat e AI dhe i ruan në DB duke i lidhur me përdoruesin e loguar.
-     */
     public function processPrompt(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'action_type'   => 'required|in:generate,explain,security',
-            'user_input'    => 'required|string|min:3',
-            'language_used' => 'nullable|string'
-        ]);
+        $prompt = $request->input('user_input') 
+               ?? $request->input('prompt') 
+               ?? $request->input('code') 
+               ?? $request->input('text') 
+               ?? $request->input('query') 
+               ?? collect($request->all())->first();
 
-        if ($validator->fails()) {
-            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        if (!$prompt || empty(trim($prompt))) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The prompt field is empty.',
+            ], 422)->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
         }
 
-        $actionType = $request->input('action_type');
-        $userInput  = $request->input('user_input');
-        $language   = $request->input('language_used', 'javascript');
+        $language = $request->input('language_used', $request->input('language', 'javascript'));
+        $action = $request->input('action_type', $request->input('action', 'generate'));
 
-        $systemInstruction = "You are an expert AI Code Helper named Blendi AI. ";
-        if ($actionType === 'generate') {
-            $systemInstruction .= "Generate efficient and secure clean code in {$language}. Return only code.";
-        } elseif ($actionType === 'explain') {
-            $systemInstruction .= "Explain the provided {$language} code line by line clearly in Albanian.";
-        } elseif ($actionType === 'security') {
-            $systemInstruction .= "Audit the following {$language} code for security flaws in Albanian.";
+        if (in_array($action, ['refactor', 'security'])) {
+            $hasCodeIndicators = preg_match('/[\{\}\[\]\(\);\=]|function|class|def|const|let|var|echo|print|return|if|for|while|import|include|public|private/i', $prompt);
+            
+            if (!$hasCodeIndicators) {
+                $errorMsg = "// ERROR: Refactor and Audit actions require actual source code, not plain text.\n"
+                          . "// Please provide a valid code snippet to refactor or audit.";
+                
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'id' => time(),
+                        'action_type' => $action,
+                        'user_input' => $prompt,
+                        'ai_response' => $errorMsg,
+                    ],
+                    'result' => $errorMsg,
+                    'response' => $errorMsg,
+                    'code' => $errorMsg,
+                ])->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+            }
+        }
+
+        // Zbulimi automatik i gjuhës nga vetë kodi (Auto-Detect i zgjuar)
+        $lowerPrompt = strtolower($prompt);
+        $detectedLanguage = $language;
+
+        if (str_contains($lowerPrompt, '<?php') || str_contains($lowerPrompt, 'namespace') || str_contains($lowerPrompt, 'public function') || str_contains($lowerPrompt, 'Illuminate')) {
+            $detectedLanguage = 'php';
+        } elseif (str_contains($lowerPrompt, 'import react') || str_contains($lowerPrompt, 'const ') || str_contains($lowerPrompt, 'console.log') || str_contains($lowerPrompt, '=>') || str_contains($lowerPrompt, 'useState')) {
+            $detectedLanguage = 'javascript';
+        } elseif (str_contains($lowerPrompt, 'def ') || str_contains($lowerPrompt, 'import os') || str_contains($lowerPrompt, 'print(')) {
+            $detectedLanguage = 'python';
+        } elseif (str_contains($lowerPrompt, '<html') || str_contains($lowerPrompt, '<div')) {
+            $detectedLanguage = 'html';
+        } elseif (str_contains($lowerPrompt, 'background-color') || str_contains($lowerPrompt, 'margin:') || str_contains($lowerPrompt, 'padding:')) {
+            $detectedLanguage = 'css';
+        }
+
+        $systemPrompt = "You are an expert AI code assistant. Write clean, accurate code strictly in {$detectedLanguage}. Return ONLY raw executable code without markdown backticks.";
+
+        if ($action === 'explain') {
+            $systemPrompt = "You are a senior software engineer. Analyze and explain this {$detectedLanguage} code thoroughly, breaking down its logic, functions, and structure clearly in professional English.";
+        } elseif ($action === 'refactor') {
+            $systemPrompt = "Refactor, optimize, and clean up this {$detectedLanguage} code completely. Fix inefficiencies while preserving functionality. Return ONLY raw refactored code without markdown backticks.";
+        } elseif ($action === 'security') {
+            $systemPrompt = "Perform a deep security audit and bug analysis on this {$detectedLanguage} code. List vulnerabilities, logic errors, and security recommendations clearly in professional English.";
         }
 
         try {
-            if (empty(env('OPENAI_API_KEY'))) {
-                throw new Exception("OpenAI Key missing.");
-            }
-
-            $response = OpenAI::chat()->create([
-                'model' => 'gpt-4o-mini',
-                'messages' => [
-                    ['role' => 'system', 'content' => $systemInstruction],
-                    ['role' => 'user', 'content' => $userInput],
+            $response = Http::timeout(120)->post('http://127.0.0.1:11434/api/generate', [
+                'model' => 'qwen2.5-coder:1.5b',
+                'prompt' => $prompt,
+                'system' => $systemPrompt,
+                'stream' => false,
+                'options' => [
+                    'temperature' => 0.1,
+                    'num_ctx' => 4096,
                 ],
-                'temperature' => 0.2,
             ]);
 
-            $aiResponse = $response->choices->message->content;
-        } catch (Exception $e) {
-            // Përgjigje fallback për mënyrën testuese (kur OpenAI nuk ka kredite)
-            $aiResponse = "// [Mënyra Testuese - Error Kreditesh OpenAI]\n// Kjo përgjigje u ruajt në databazë si historik për llogarinë tuaj:\n// Kërkesa: " . $userInput;
+            if ($response->successful()) {
+                $rawResult = $response->json('response');
+
+                if ($action === 'generate' || $action === 'refactor') {
+                    $cleanedResult = preg_replace('/^```[a-z]*\n/i', '', trim($rawResult));$cleanedResult = preg_replace('/```$/', '', trim($cleanedResult));
+                    $finalOutput = trim($cleanedResult);
+                } else {
+                    $finalOutput = trim($rawResult);
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'id' => time(),
+                        'action_type' => $action,
+                        'user_input' => $prompt,
+                        'ai_response' => $finalOutput,
+                    ],
+                    'result' => $finalOutput,
+                    'response' => $finalOutput,
+                    'code' => $finalOutput,
+                ])->header('Access-Control-Allow-Origin', '*')
+                  ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                  ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Ollama did not respond successfully.',
+            ], 500)->header('Access-Control-Allow-Origin', '*');
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error communicating with Ollama: ' . $e->getMessage(),
+            ], 500)->header('Access-Control-Allow-Origin', '*');
         }
-
-        // Ruajtja në Databazë (Lidhja me përdoruesin e vërtetë të loguar)
-        $promptLog = new CodePrompt();
-        $promptLog->user_id       = auth()->id(); // ID-ja merret në mënyrë të sigurt nga Sanctum Token
-        $promptLog->action_type   = $actionType;
-        $promptLog->user_input    = $userInput;
-        $promptLog->ai_response   = $aiResponse;
-        $promptLog->language_used = $language;
-        $promptLog->save();
-
-        return response()->json([
-            'success' => true,
-            'status'  => 'sukses',
-            'author'  => 'Blendi',
-            'data'    => $promptLog
-        ], 200);
     }
 
-    /**
-     * Merr historikun e pyetjeve nga databaza VETËM për përdoruesin e loguar.
-     */
     public function getHistory()
     {
-        // Merr 10 pyetjet e fundit që i përkasin ekzaktësisht këtij përdoruesi
-        $history = CodePrompt::where('user_id', auth()->id())
-                             ->orderBy('created_at', 'desc')
-                             ->take(10)
-                             ->get();
-
         return response()->json([
             'success' => true,
-            'author'  => 'Blendi',
-            'history' => $history
-        ], 200);
+            'history' => [],
+        ])->header('Access-Control-Allow-Origin', '*');
+    }
+
+    public function deleteHistory($id)
+    {
+        return response()->json([
+            'success' => true,
+            'message' => 'Successfully deleted',
+        ])->header('Access-Control-Allow-Origin', '*');
     }
 }

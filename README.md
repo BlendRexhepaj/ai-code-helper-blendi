@@ -60,7 +60,8 @@ Ky projekt pasqyron njohuritë e marra përgjatë 6 akademive të çertifikuara:
 ---
 
 ## 📸 Pamjet nga Aplikacioni (Screenshots Guide)
-*(Këshillë për prezantim: Ruani këto 3 imazhe nga browseri juaj dhe vendosni në këtë folder)*
+
 1. `screenshot-login.png` - Pamja e dritares së sigurisë për Login/Register.
+
 2. `screenshot-dashboard.png` - Pamja e plotë e Dashboard-it të zi me fushën e inputit dhe rezultatin e ngjyrosur me Syntax Highlighting.
 3. `screenshot-mobile.png` - Pamja responsive e aplikacionit siç duket në celular me sidebar-in e fshehur.

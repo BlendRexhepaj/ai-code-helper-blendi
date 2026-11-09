@@ -1,267 +1,365 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import ReactMarkdown from 'react-markdown';
+
 import Navbar from './components/Navbar';
 import AuthModal from './components/AuthModal';
-import { Sparkles, HelpCircle, ShieldAlert, Trash2, Copy, Check, Code, History, LogOut, RefreshCw } from 'lucide-react';
+import Sidebar from './components/Sidebar';
+import ChatWorkspace from './components/ChatWorkspace';
+import FolderModal from './components/FolderModal';
+import ProfileModal from './components/ProfileModal';
 
-const API_URL = 'http://localhost:8085/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8085/api';
+
+const api = axios.create({
+  baseURL: API_URL,
+  timeout: 300000,
+  headers: {
+    Accept: 'application/json',
+    'Content-Type': 'application/json'
+  }
+});
+
+const getAuthHeader = () => {
+  const token = localStorage.getItem('token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
 
 function App() {
-  const [query, setQuery] = useState('');
-  const [output, setOutput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [historyList, setHistoryList] = useState([]);
-  const [selectedLanguage, setSelectedLanguage] = useState('javascript');
-  
-  const [userName, setUserName] = useState(localStorage.getItem('user_name') || '');
-  const [showAuthModal, setShowAuthModal] = useState(!localStorage.getItem('token'));
-  const [isLoginView, setIsLoginView] = useState(true);
-
-  const getAuthHeader = () => ({
-    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  const [sessions, setSessions] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('chat_sessions')) || []; } catch { return []; }
   });
 
-  const fetchHistory = async () => {
-    if (!localStorage.getItem('token')) return;
-    try {
-      const response = await axios.get(`${API_URL}/ai/history`, getAuthHeader());
-      if (response.data && response.data.success) {
-        setHistoryList(response.data.history || []);
-      }
-    } catch (error) {
-      console.error("Gabim gjatë marrjes së historikut", error);
-    }
-  };
+  const [activeSessionId, setActiveSessionId] = useState(() => {
+    return localStorage.getItem('active_session_id') || null;
+  });
+
+  const [folders, setFolders] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('chat_folders')) || []; } catch { return []; }
+  });
+
+  const [sessionFolderMap, setSessionFolderMap] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('session_folder_map')) || {}; } catch { return {}; }
+  });
+
+  const [inputMessage, setInputMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [selectedAction, setSelectedAction] = useState('generate');
+  const [selectedLanguage, setSelectedLanguage] = useState('javascript');
+  const [copiedId, setCopiedId] = useState(null);
+
+  const [newFolderName, setNewFolderName] = useState('');
+  const [activeFolderMenu, setActiveFolderMenu] = useState(null);
+  const [selectedFolderForModal, setSelectedFolderForModal] = useState(null);
+  const [modalSelectedSessionIds, setModalSelectedSessionIds] = useState([]);
+
+  // States për Profilin dhe Modalin e Profilit (Dinamike pa email statik)
+  const [userName, setUserName] = useState(() => localStorage.getItem('user_name') || '');
+  const [userEmail, setUserEmail] = useState(() => localStorage.getItem('user_email') || '');
+  const [showProfileModal, setShowProfileModal] = useState(false);
+
+  const chatEndRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  const [theme, setTheme] = useState(() => localStorage.getItem('app_theme') || 'dark');
+  useEffect(() => { localStorage.setItem('app_theme', theme); }, [theme]);
+  const toggleTheme = () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+
+  useEffect(() => { localStorage.setItem('chat_sessions', JSON.stringify(sessions)); }, [sessions]);
+  useEffect(() => { localStorage.setItem('chat_folders', JSON.stringify(folders)); }, [folders]);
+  useEffect(() => { localStorage.setItem('session_folder_map', JSON.stringify(sessionFolderMap)); }, [sessionFolderMap]);
+  useEffect(() => {
+    if (activeSessionId) localStorage.setItem('active_session_id', activeSessionId);
+    else localStorage.removeItem('active_session_id');
+  }, [activeSessionId]);
 
   useEffect(() => {
-    if (userName) {
-      fetchHistory();
-    }
-  }, [userName]);
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [sessions, activeSessionId, loading]);
 
-  const handleProcess = async (actionType) => {
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
+    }
+  }, [inputMessage]);
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
+
+  // Funksioni për Refresh / New Chat
+  const handleNewChat = (actionType = 'generate') => {
+    setActiveSessionId(null);
+    setSelectedAction(actionType);
+    setInputMessage('');
+    setLoading(false);
+  };
+
+  const generateSmartTitle = (text, action) => {
+    const cleanText = text.replace(/[\n\r]+/g, ' ').trim();
+    if (cleanText.length > 0 && cleanText.length < 30 && !cleanText.includes('<!DOCTYPE')) {
+      return cleanText;
+    }
+    const actionFormatted = action.charAt(0).toUpperCase() + action.slice(1);
+    return `${actionFormatted}: ${cleanText.substring(0, 16)}...`;
+  };
+
+  const handleSendMessage = async () => {
     if (!localStorage.getItem('token')) {
       setShowAuthModal(true);
       return;
     }
-    if (!query.trim()) {
-      alert("Ju lutem shkruani një kod ose pyetje!");
-      return;
+    const textToSend = inputMessage.trim();
+    if (!textToSend) return;
+
+    let currentSession = activeSession;
+    let targetSessionId = activeSessionId;
+    const currentActionToUse = currentSession ? currentSession.action : selectedAction;
+    const smartTitle = generateSmartTitle(textToSend, currentActionToUse);
+
+    if (!currentSession) {
+      targetSessionId = 'session_' + Date.now();
+      currentSession = {
+        id: targetSessionId,
+        title: smartTitle,
+        action: selectedAction,
+        language: selectedAction === 'generate' ? selectedLanguage : 'auto',
+        messages: []
+      };
+      setSessions((prev) => [currentSession, ...prev]);
+      setActiveSessionId(targetSessionId);
     }
+
+    const userMsg = { id: Date.now(), sender: 'user', text: textToSend };
+    const updatedMessages = [...currentSession.messages, userMsg];
     
+    setSessions((prev) =>
+      prev.map((s) => 
+        s.id === targetSessionId 
+          ? { ...s, title: s.title === 'New Workspace' ? smartTitle : s.title, messages: updatedMessages } 
+          : s
+      )
+    );
+
+    setInputMessage('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setLoading(true);
-    setOutput('');
 
     try {
-      const response = await axios.post(`${API_URL}/ai/process`, {
-        action_type: actionType,
-        user_input: query,
-        language_used: selectedLanguage
-      }, getAuthHeader());
+      const response = await api.post(
+        '/ai/process',
+        {
+          action_type: currentSession.action,
+          user_input: textToSend,
+          language_used: currentSession.action === 'generate' ? currentSession.language : 'auto'
+        },
+        { headers: getAuthHeader() }
+      );
 
-      if (response.data && response.data.success) {
-        setOutput(response.data.data.ai_response);
-        fetchHistory();
+      if (response.data?.success && response.data?.data) {
+        const aiResponseText = response.data.data.ai_response || response.data.response || 'No response';
+        const aiMsg = { id: Date.now() + 1, sender: 'ai', text: aiResponseText };
+        setSessions((prev) =>
+          prev.map((s) => s.id === targetSessionId ? { ...s, messages: [...s.messages, aiMsg] } : s)
+        );
+      } else {
+        const errAiMsg = { id: Date.now() + 1, sender: 'ai', text: '// Error: Invalid server response.' };
+        setSessions((prev) =>
+          prev.map((s) => s.id === targetSessionId ? { ...s, messages: [...s.messages, errAiMsg] } : s)
+        );
       }
     } catch (error) {
-      setOutput("```javascript\n// Gabim në autentikim ose sesion i skaduar.\n```");
+      const errAiMsg = { id: Date.now() + 1, sender: 'ai', text: '// Error connecting to server.' };
+      setSessions((prev) =>
+        prev.map((s) => s.id === targetSessionId ? { ...s, messages: [...s.messages, errAiMsg] } : s)
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAuthSuccess = (name) => {
-    setUserName(name);
+  const handleDeleteSession = (e, sessionId) => {
+    e.stopPropagation();
+    if (!confirm('Delete this workspace?')) return;
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    if (activeSessionId === sessionId) {
+      setActiveSessionId(null);
+      setLoading(false);
+    }
+    setSessionFolderMap((prev) => {
+      const copy = { ...prev };
+      delete copy[sessionId];
+      return copy;
+    });
+  };
+
+  const handleCreateFolder = () => {
+    const folderName = newFolderName.trim();
+    if (!folderName || folders.includes(folderName)) return;
+    setFolders((prev) => [...prev, folderName]);
+    setNewFolderName('');
+  };
+
+  const handleDeleteFolder = (folderName) => {
+    if (!confirm(`Delete folder "${folderName}"?`)) return;
+    const sessionIdsToDelete = Object.keys(sessionFolderMap).filter(
+      (sessionId) => sessionFolderMap[sessionId] === folderName
+    );
+    setSessions((prev) => prev.filter((s) => !sessionIdsToDelete.includes(s.id)));
+    if (sessionIdsToDelete.includes(activeSessionId)) {
+      setActiveSessionId(null);
+      setLoading(false);
+    }
+    setSessionFolderMap((prev) => {
+      const copy = { ...prev };
+      Object.keys(copy).forEach((k) => { if (copy[k] === folderName) delete copy[k]; });
+      return copy;
+    });
+    setFolders((prev) => prev.filter((f) => f !== folderName));
+  };
+
+  const openFolderSelectionModal = (folderName) => {
+    setSelectedFolderForModal(folderName);
+    const currentInFolder = sessions
+      .filter((s) => sessionFolderMap[s.id] === folderName)
+      .map((s) => s.id);
+    setModalSelectedSessionIds(currentInFolder);
+    setActiveFolderMenu(null);
+  };
+
+  const handleSaveModalSelection = () => {
+    setSessionFolderMap((prev) => {
+      const copy = { ...prev };
+      Object.keys(copy).forEach((sessionId) => {
+        if (copy[sessionId] === selectedFolderForModal) delete copy[sessionId];
+      });
+      modalSelectedSessionIds.forEach((sessionId) => {
+        copy[sessionId] = selectedFolderForModal;
+      });
+      return copy;
+    });
+    setSelectedFolderForModal(null);
+  };
+
+  const handleCopyText = async (text, id) => {
+    const cleanText = text.replace(/```[a-z]*\n/gi, '').replace(/```/g, '');
+    try {
+      await navigator.clipboard.writeText(cleanText);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (e) {
+      alert('Failed to copy');
+    }
+  };
+
+  const [showAuthModal, setShowAuthModal] = useState(!localStorage.getItem('token'));
+  const [isLoginView, setIsLoginView] = useState(true);
+
+  // Përditësim i handleAuthSuccess për të marrë emrin dhe e-mailin e vërtetë nga backend
+  const handleAuthSuccess = (name, email) => {
+    setUserName(name || 'User');
+    setUserEmail(email || '');
+    if (name) localStorage.setItem('user_name', name);
+    if (email) localStorage.setItem('user_email', email);
     setShowAuthModal(false);
   };
 
-  const handleLogout = async () => {
-    try {
-      await axios.post(`${API_URL}/logout`, {}, getAuthHeader());
-    } catch (e) {
-      console.error("Logout gabim", e);
-    }
+  const handleUpdateProfile = (newFullName, newEmail) => {
+    setUserName(newFullName);
+    setUserEmail(newEmail);
+    localStorage.setItem('user_name', newFullName);
+    localStorage.setItem('user_email', newEmail);
+  };
+
+  const handleLogout = () => {
     localStorage.clear();
     setUserName('');
-    setHistoryList([]);
-    setOutput('');
-    setQuery('');
+    setUserEmail('');
+    setSessions([]);
+    setActiveSessionId(null);
+    setFolders([]);
+    setSessionFolderMap({});
+    setLoading(false);
     setShowAuthModal(true);
     setIsLoginView(true);
   };
 
-  const handleCopy = () => {
-    if (!output) return;
-    const cleanText = output.replace(/```[a-z]*\n/g, '').replace(/```/g, '');
-    navigator.clipboard.writeText(cleanText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const isDark = theme === 'dark';
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30">
-      <Navbar />
+    <div className={`h-screen w-screen flex flex-col font-sans overflow-hidden ${isDark ? 'bg-[#1e1e1e] text-[#d4d4d4]' : 'bg-[#d9dbe3] text-[#333333]'}`}>
+      
+      {/* Navbar i Përditësuar me Profilin e Klikueshëm */}
+      <Navbar 
+        handleNewChat={handleNewChat} 
+        isDark={isDark} 
+        userName={userName}
+        onOpenProfile={() => setShowProfileModal(true)}
+      />
 
       {showAuthModal && (
-        <AuthModal 
-          isLoginView={isLoginView} 
-          setIsLoginView={setIsLoginView} 
-          onAuthSuccess={handleAuthSuccess} 
+        <AuthModal isLoginView={isLoginView} setIsLoginView={setIsLoginView} onAuthSuccess={handleAuthSuccess} />
+      )}
+
+      <FolderModal
+        isDark={isDark}
+        selectedFolderForModal={selectedFolderForModal}
+        setSelectedFolderForModal={setSelectedFolderForModal}
+        sessions={sessions}
+        modalSelectedSessionIds={modalSelectedSessionIds}
+        setModalSelectedSessionIds={setModalSelectedSessionIds}
+        handleSaveModalSelection={handleSaveModalSelection}
+      />
+
+      {/* Modal-i i Profilit dhe Security */}
+      {showProfileModal && (
+        <ProfileModal
+          isDark={isDark}
+          userName={userName}
+          userEmail={userEmail}
+          onClose={() => setShowProfileModal(false)}
+          onUpdateProfile={handleUpdateProfile}
         />
       )}
 
-      <div className="flex flex-1 overflow-hidden">
-        
-        {/* SIDEBAR HISTORIKU */}
-        <aside className="w-64 bg-slate-900/60 border-r border-slate-800 p-4 hidden md:flex flex-col justify-between">
-          <div>
-            <div className="mb-4 text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-              <History size={14} className="text-indigo-400" /> Chat Historiku yt
-            </div>
-            
-            <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-              {historyList.length === 0 ? (
-                <div className="text-slate-600 text-xs italic p-2">Nuk ka pyetje në llogarinë tuaj.</div>
-              ) : (
-                historyList.map((item) => (
-                  <div 
-                    key={item.id} 
-                    onClick={() => { setQuery(item.user_input); setOutput(item.ai_response); }}
-                    className="p-2.5 bg-slate-950/50 hover:bg-slate-800 rounded-xl border border-slate-800/80 text-xs cursor-pointer text-slate-300 truncate transition"
-                  >
-                    <span className="text-indigo-400 mr-1 font-mono">
-                      [{item.action_type ? item.action_type.substring(0, 3).toUpperCase() : 'AI'}]
-                    </span>
-                    {item.user_input}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-          
-          {userName && (
-            <button 
-              onClick={handleLogout}
-              className="w-full flex items-center justify-center gap-2 bg-rose-950/30 hover:bg-rose-900/40 border border-rose-900/40 py-2 rounded-xl text-xs font-semibold text-rose-400 transition cursor-pointer"
-            >
-              <LogOut size={14} /> Çkyçu nga Llogaria
-            </button>
-          )}
-        </aside>
+      <div className="flex flex-1 relative z-10 overflow-hidden h-[calc(100vh-64px)]">
+        <Sidebar
+          isDark={isDark}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          folders={folders}
+          sessionFolderMap={sessionFolderMap}
+          newFolderName={newFolderName}
+          setNewFolderName={setNewFolderName}
+          activeFolderMenu={activeFolderMenu}
+          setActiveFolderMenu={setActiveFolderMenu}
+          handleNewChat={handleNewChat}
+          handleCreateFolder={handleCreateFolder}
+          handleDeleteFolder={handleDeleteFolder}
+          openFolderSelectionModal={openFolderSelectionModal}
+          handleDeleteSession={handleDeleteSession}
+          setActiveSessionId={setActiveSessionId}
+          setSelectedAction={setSelectedAction}
+          setLoading={setLoading}
+          userName={userName}
+          handleLogout={handleLogout}
+        />
 
-        {/* ZONA KRYESORE */}
-        <main className="flex-1 p-6 overflow-y-auto max-w-7xl mx-auto w-full flex flex-col gap-6">
-          <section className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
-                Blendi Smart Code Editor <Sparkles className="text-indigo-400 w-5 h-5" />
-              </h1>
-              <p className="text-slate-400 text-xs mt-0.5">
-                Moduli Java 7 & 8: Ngjyrosje kodi (Syntax Highlight) dhe optimizim me Inteligjencë Artificiale.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-400 font-medium">Gjuha:</span>
-              <select 
-                value={selectedLanguage} 
-                onChange={(e) => setSelectedLanguage(e.target.value)}
-                className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs font-mono text-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 cursor-pointer"
-              >
-                <option value="javascript">JavaScript</option>
-                <option value="php">PHP</option>
-                <option value="python">Python</option>
-                <option value="html">HTML</option>
-                <option value="css">CSS</option>
-              </select>
-            </div>
-          </section>
-
-          <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 items-stretch">
-            
-            {/* INPUT PANEL */}
-            <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-5 flex flex-col justify-between shadow-xl">
-              <div className="flex-1 flex flex-col">
-                <div className="flex items-center justify-between mb-3">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                    <Code size={14} className="text-indigo-400" /> Editori i Kodit të Hyrë
-                  </label>
-                  {query && (
-                    <button onClick={() => setQuery('')} className="text-slate-500 hover:text-rose-400 p-1 rounded-lg hover:bg-slate-800/50">
-                      <Trash2 size={15} />
-                    </button>
-                  )}
-                </div>
-                
-                <div className="flex flex-1 min-h-[350px] bg-slate-950 rounded-xl border border-slate-800/80 overflow-hidden shadow-inner">
-                  <div className="w-10 bg-slate-900/50 text-slate-600 font-mono text-xs text-right py-4 pr-2 select-none border-r border-slate-900">
-                    1 <br /> 2 <br /> 3 <br /> 4 <br /> 5 <br /> 6 <br /> 7 <br /> 8 <br /> 9 <br /> 10
-                  </div>
-                  <textarea
-                    className="flex-1 bg-transparent text-emerald-400 p-4 font-mono text-sm focus:outline-none resize-none placeholder:text-slate-700"
-                    placeholder="// Ngjit ose shkruaj kodin tënd këtu për analizë ose refaktorim..."
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
-                <button onClick={() => handleProcess('generate')} className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1"><Sparkles size={14} /> Gjenero</button>
-                <button onClick={() => handleProcess('explain')} className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium py-2.5 rounded-xl text-xs transition border border-slate-700/40 cursor-pointer flex items-center justify-center gap-1"><HelpCircle size={14} /> Shpjego</button>
-                <button onClick={() => handleProcess('generate')} className="bg-emerald-950/40 hover:bg-emerald-900/40 text-emerald-400 font-medium py-2.5 rounded-xl text-xs transition border border-emerald-900/30 cursor-pointer flex items-center justify-center gap-1"><RefreshCw size={14} /> Refaktoro</button>
-                <button onClick={() => handleProcess('security')} className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-medium py-2.5 rounded-xl text-xs transition border border-rose-900/30 cursor-pointer flex items-center justify-center gap-1"><ShieldAlert size={14} /> Audito</button>
-              </div>
-            </div>
-
-            {/* OUTPUT PANEL */}
-            <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-5 flex flex-col shadow-xl">
-              <div className="flex items-center justify-between mb-3">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  🖥️ Rezultati Vizual (Colors Active)
-                </label>
-                {output && (
-                  <button
-                    onClick={handleCopy}
-                    className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition bg-indigo-500/10 border border-indigo-500/20 py-1 px-2.5 rounded-lg cursor-pointer"
-                  >
-                    {copied ? (
-                      <>
-                        <Check size={14} className="text-emerald-400" />
-                        <span className="text-emerald-400">U Kopjua!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy size={14} />
-                        <span>Kopjo Kodin</span>
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-
-              <div className="w-full flex-1 min-h-[350px] bg-slate-950 text-slate-300 p-4 rounded-xl font-mono text-sm overflow-auto border border-slate-800/80 shadow-inner">
-                {loading ? (
-                  <div className="flex items-center justify-center h-full gap-3 text-indigo-400 font-medium my-auto">
-                    <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                    <span>Blendi po ngjyros kodin...</span>
-                  </div>
-                ) : output ? (
-                  <div className="prose prose-invert max-w-none text-sm leading-relaxed whitespace-pre-wrap">
-                    <ReactMarkdown>{output}</ReactMarkdown>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center h-full text-slate-600 italic text-center text-xs sm:text-sm">
-                    Kodi i gjeneruar ose shpjegimi do të ngjyroset automatikisht me ngjyra profesionale këtu.
-                  </div>
-                )}
-              </div>
-            </div>
-
-          </section>
-        </main>
+        <ChatWorkspace
+          isDark={isDark}
+          activeSession={activeSession}
+          selectedAction={selectedAction}
+          toggleTheme={toggleTheme}
+          copiedId={copiedId}
+          handleCopyText={handleCopyText}
+          loading={loading}
+          chatEndRef={chatEndRef}
+          textareaRef={textareaRef}
+          inputMessage={inputMessage}
+          setInputMessage={setInputMessage}
+          handleSendMessage={handleSendMessage}
+          selectedLanguage={selectedLanguage}
+          setSelectedLanguage={setSelectedLanguage}
+          setSessions={setSessions}
+        />
       </div>
     </div>
   );

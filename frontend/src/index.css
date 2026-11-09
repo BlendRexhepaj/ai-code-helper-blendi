@@ -1,1 +1,44 @@
 @import "tailwindcss";
+/* Shto këto klasa ose stile në sfondin e workspace-it */
+.premium-bg {
+  position: relative;
+  overflow: hidden;
+  background-color: #0f0f13; /* Një e zezë pak më e pastër */
+}
+
+.premium-bg::before,
+.premium-bg::after {
+  content: '';
+  position: absolute;
+  width: 450px;
+  height: 450px;
+  border-radius: 50%;
+  filter: blur(120px);
+  z-index: 0;
+  opacity: 0.15;
+  pointer-events: none;
+  animation: floatOrb 10s ease-in-out infinite alternate;
+}
+
+.premium-bg::before {
+  top: -10%;
+  left: 10%;
+  background: #9333ea; /* Ngjyrë vjollcë */
+}
+
+.premium-bg::after {
+  bottom: -10%;
+  right: 10%;
+  background: #4f46e5; /* Ngjyrë indigo/blu */
+  animation-delay: -5s;
+}
+
+@keyframes floatOrb {
+  0% { transform: translateY(0px) scale(1); }
+  100% { transform: translateY(30px) scale(1.1); }
+}
+
+.code-grid-bg {
+  background-image: radial-gradient(rgba(147, 51, 234, 0.1) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
