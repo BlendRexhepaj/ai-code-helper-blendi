@@ -52,7 +52,7 @@ class AiCodeController extends Controller
             }
         }
 
-        // Zbulimi automatik i gjuhës nga vetë kodi (Auto-Detect i zgjuar)
+        // Zbulimi automatik i gjuhës nga vetë kodi
         $lowerPrompt = strtolower($prompt);
         $detectedLanguage = $language;
 
@@ -78,10 +78,23 @@ class AiCodeController extends Controller
             $systemPrompt = "Perform a deep security audit and bug analysis on this {$detectedLanguage} code. List vulnerabilities, logic errors, and security recommendations clearly in professional English.";
         }
 
+        // Marrim historikun e mesazheve për të ruajtur kontekstin (memoren e bisedës)
+        $historyMessages = $request->input('messages', []);
+        $contextualPrompt = "";
+        if (!empty($historyMessages)) {
+            foreach ($historyMessages as $msg) {
+                $role = ($msg['sender'] === 'user') ? 'User' : 'Assistant';
+                $contextualPrompt .= "{$role}: {$msg['text']}\n";
+            }
+            $contextualPrompt .= "User: {$prompt}\nAssistant:";
+        } else {
+            $contextualPrompt = $prompt;
+        }
+
         try {
             $response = Http::timeout(120)->post('http://127.0.0.1:11434/api/generate', [
-                'model' => 'qwen2.5-coder:1.5b',
-                'prompt' => $prompt,
+                'model' => 'qwen2.5-coder:7b', // <--- Këtu u ndryshua në modelin 7B për logjikë dhe saktësi maksimale
+                'prompt' => $contextualPrompt,
                 'system' => $systemPrompt,
                 'stream' => false,
                 'options' => [

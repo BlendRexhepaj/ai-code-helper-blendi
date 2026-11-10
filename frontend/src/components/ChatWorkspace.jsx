@@ -1,6 +1,59 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+// Komponent ndihmës për bllokun e kodit me opsion Edit/Save dhe Copy
+function EditableCodeBlock({ codeString, lang, isDark }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [code, setCode] = useState(codeString);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="my-3 rounded-xl overflow-hidden border border-slate-700 shadow-2xl">
+      <div className="bg-[#2d2d2d] px-4 py-1.5 text-[11px] text-purple-400 font-mono font-semibold flex items-center justify-between border-b border-slate-700 select-none">
+        <span>{lang.toUpperCase()}</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsEditing(!isEditing)}
+            className="flex items-center gap-1 px-2.5 py-0.5 bg-gray-700 hover:bg-gray-600 rounded text-xs text-white transition cursor-pointer"
+          >
+            {isEditing ? '💾 Save' : '✏️ Edit'}
+          </button>
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1 px-2.5 py-0.5 bg-gray-700 hover:bg-gray-600 rounded text-xs text-white transition cursor-pointer"
+          >
+            {copied ? '✔ Copied!' : '📋 Copy'}
+          </button>
+        </div>
+      </div>
+
+      {isEditing ? (
+        <textarea
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          className="w-full h-64 bg-[#1e1e1e] text-green-400 font-mono text-xs p-4 focus:outline-none resize-y leading-relaxed"
+        />
+      ) : (
+        <SyntaxHighlighter
+          language={lang.toLowerCase()}
+          style={vscDarkPlus}
+          showLineNumbers={true}
+          lineNumberStyle={{ color: '#858585', fontSize: '11px', paddingRight: '1em', minWidth: '2.5em', textAlign: 'right' }}
+          customStyle={{ margin: 0, padding: '1rem', fontSize: '12px', background: '#1e1e1e', lineHeight: '1.6' }}
+        >
+          {code}
+        </SyntaxHighlighter>
+      )}
+    </div>
+  );
+}
 
 export default function ChatWorkspace({
   isDark,
@@ -40,20 +93,12 @@ export default function ChatWorkspace({
       const codeString = match[2].trim();
 
       parts.push(
-        <div key={match.index} className="my-3 rounded-xl overflow-hidden border border-slate-700 shadow-2xl">
-          <div className="bg-[#2d2d2d] px-4 py-1.5 text-[11px] text-purple-400 font-mono font-semibold flex items-center justify-between border-b border-slate-700 select-none">
-            <span>{lang.toUpperCase()}</span>
-          </div>
-          <SyntaxHighlighter
-            language={lang.toLowerCase()}
-            style={vscDarkPlus}
-            showLineNumbers={true}
-            lineNumberStyle={{ color: '#858585', fontSize: '11px', paddingRight: '1em', minWidth: '2.5em', textAlign: 'right' }}
-            customStyle={{ margin: 0, padding: '1rem', fontSize: '12px', background: '#1e1e1e', lineHeight: '1.6' }}
-          >
-            {codeString}
-          </SyntaxHighlighter>
-        </div>
+        <EditableCodeBlock 
+          key={match.index} 
+          codeString={codeString} 
+          lang={lang} 
+          isDark={isDark} 
+        />
       );
 
       lastIndex = codeBlockRegex.lastIndex;
@@ -64,20 +109,11 @@ export default function ChatWorkspace({
       
       if (parts.length === 0) {
         return (
-          <div className="my-2 rounded-xl overflow-hidden border border-slate-700 shadow-2xl">
-            <div className="bg-[#2d2d2d] px-4 py-1.5 text-[11px] text-purple-400 font-mono font-semibold flex items-center justify-between border-b border-slate-700 select-none">
-              <span>{(currentLang || 'CODE').toUpperCase()}</span>
-            </div>
-            <SyntaxHighlighter
-              language={(currentLang || 'javascript').toLowerCase()}
-              style={vscDarkPlus}
-              showLineNumbers={true}
-              lineNumberStyle={{ color: '#858585', fontSize: '11px', paddingRight: '1em', minWidth: '2.5em', textAlign: 'right' }}
-              customStyle={{ margin: 0, padding: '1rem', fontSize: '12px', background: '#1e1e1e', lineHeight: '1.6' }}
-            >
-              {text.trim()}
-            </SyntaxHighlighter>
-          </div>
+          <EditableCodeBlock 
+            codeString={text.trim()} 
+            lang={currentLang || 'javascript'} 
+            isDark={isDark} 
+          />
         );
       }
 
@@ -94,7 +130,6 @@ export default function ChatWorkspace({
   return (
     <main className={`flex-1 flex flex-col relative h-full overflow-hidden transition-colors premium-bg code-grid-bg ${isDark ? 'bg-[#151518]' : 'bg-[#d9dbe3]'}`}>
       
-      {/* Stilët e brendshme statike për sfondin premium */}
       <style>{`
         .premium-bg {
           position: relative;
@@ -167,7 +202,7 @@ export default function ChatWorkspace({
                       onClick={() => handleCopyText(msg.text, msg.id)}
                       className="hover:underline transition flex items-center gap-1 cursor-pointer"
                     >
-                      {copiedId === msg.id ? '✔ Copied!' : '📋 Copy Code'}
+                      {copiedId === msg.id ? '✔ Copied!' : '📋 Copy All'}
                     </button>
                   )}
                 </div>
@@ -184,7 +219,6 @@ export default function ChatWorkspace({
           ))
         )}
 
-        {/* Loading Spinner */}
         {loading && (
           <div className="flex items-start">
             <div className={`rounded-2xl p-4 rounded-bl-none flex items-center gap-3 border backdrop-blur-sm ${
@@ -209,7 +243,6 @@ export default function ChatWorkspace({
               Mode: <strong className="text-purple-600 dark:text-purple-400 uppercase">{currentAction}</strong>
             </span>
 
-            {/* Language Dropdown shfaqet VETËM kur aksioni është 'generate' */}
             {currentAction === 'generate' ? (
               <div className="relative">
                 <select
@@ -236,7 +269,6 @@ export default function ChatWorkspace({
                 </div>
               </div>
             ) : (
-              /* Kur aksioni nuk është generate (Explain, Refactor, Audit), tregon që gjuha detektohet automatikisht */
               <span className="text-[11px] font-mono text-purple-400 bg-purple-950/40 border border-purple-800/50 px-2.5 py-1 rounded-lg">
                 Language: Auto-Detect
               </span>
