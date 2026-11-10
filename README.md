@@ -1,67 +1,96 @@
-# 🖥️ AI Code Helper (Blendi) - Master Project v1.2
+# 🚀 AI Code Helper - SaaS Platform
 
-**AI Code Helper (Blendi)** është një aplikacion ueb "Full-Stack" i ndërtuar me teknologjitë më moderne për të ndihmuar studentët dhe programerët e rinj të gjenerojnë kod, të kërkojnë shpjegime të detajuara dhe të auditojnë kodin e tyre për dobësi të sigurisë kibernetike në kohë reale përmes Inteligjencës Artificiale (OpenAI).
-
----
-
-## 🛠️ Arkitektura dhe Teknologjitë (Diplomat e Aplikuara)
-
-Ky projekt pasqyron njohuritë e marra përgjatë 6 akademive të çertifikuara:
-- **Front-End & React Developer:** React (Vite), Tailwind CSS v4, Axios, ReactMarkdown.
-- **Back-End & Laravel Developer:** Laravel 11, REST API Architecture, MySQL (XAMPP).
-- **Digital Security:** Autentikim me Token (Laravel Sanctum), Enkriptim fjalëkalimesh (Bcrypt), Mbrojtje e inputeve dhe trajtim i kontrolluar i gabimeve (Error Handling - Try/Catch).
+An intelligent, full-stack AI-powered coding assistant and workspace platform designed to streamline software development, code generation, refactoring, explanation, and security auditing. Built as a comprehensive solution featuring context-aware chat sessions, interactive code blocks, and secure local AI integration.
 
 ---
 
-## 🚀 Udhëzuesi i Përdoruesit (User Guide)
+## 🛠️ Tech Stack & Architecture
 
-### 1. Autentikimi i Sigurt
-- Gjatë hyrjes së parë në aplikacion, përdoruesit i shfaqet moduli i sigurisë (`AuthModal`).
-- Përdoruesi mund të regjistrojë një llogari të re ose të kyçet në atë ekzistuese.
-- Pas verifikimit, sistemi gjeneron një **Bearer Token** Kriptografik të cilin e ruan në sesion (`LocalStorage`).
-
-### 2. Përdorimi i Editorit dhe Inteligjencës Artificiale
-- **Gjenero Kod:** Shkruani një kërkesë në editorin e pajisur me numra rreshtash (Line Numbers) dhe AI do të krijojë një snippet kodi të pastër.
-- **Shpjego Kod:** Ngjitni një kod të paqartë dhe AI do ta zbërthejë atë rresht për rresht në gjuhën shqipe.
-- **Refaktoro Kod:** Optimizoni strukturën e kodit tuaj për performancë më të lartë.
-- **Audito Sigurinë:** Skanoni kodin tuaj për dobësi kibernetike sipas standardeve **OWASP Top 10**.
-
-### 3. Historiku i Integruar dhe Dizajni Responsive
-- Çdo pyetje e ekzekutuar ruhet në databazën MySQL dhe lidhet me ID-në e përdoruesit.
-- Historiku shfaqet në menunë anësore (Sidebar). Klikimi mbi të ngarkon të dhënat në ekran.
-- **Për Mobile:** Në pajisje të vogla (telefona), moduli i historikut paloset dhe hapet përmes një butoni lundrues (Floating Action Button).
+- **Frontend:** React, Vite, Tailwind CSS, Lucide Icons, React Syntax Highlighter
+- **Backend:** Laravel (PHP RESTful API)
+- **Database:** MySQL (managed via Laragon)
+- **AI Engine:** Local LLM (`qwen2.5-coder:7b`) powered via **Ollama** (running locally on port `11434`)
+- **Version Control:** Git & GitHub (`ai-code-helper-blendi`)
 
 ---
 
-## ⚙️ Instalimi dhe Ekzekutimi Lokal (Setup Guide)
+## ✨ Key Features
 
-### Pjesa A: Konfigurimi i Backend-it (Laravel)
-1. Navigoni te folderi i backend-it: `cd backend`
-2. Instalo varësitë e PHP: `composer install`
-3. Konfiguro skedarin `.env` me portën tuaj të MySQL (`3307`) dhe çelësin e OpenAI:
-   ```env
-   DB_CONNECTION=mysql
-   DB_HOST=127.0.0.1
-   DB_PORT=3307
-   DB_DATABASE=ai_code_helper_db
-   DB_USERNAME=root
-   DB_PASSWORD=
-   OPENAI_API_KEY=sk-proj-ZevendesoKeteMeCelesinTuaj
-   ```
-4. Ekzekuto migracionet për krijimin e tabelave: `php artisan migrate`
-5. Ndize serverin e backend-it: `php artisan serve --port=8085`
-
-### Pjesa B: Konfigurimi i Frontend-it (React)
-1. Navigoni te folderi i frontend-it: `cd ../frontend`
-2. Instalo paketat e Node: `npm install`
-3. Ndize serverin e Vite: `npm run dev`
-4. Hapni aplikacionin në browser te: `http://localhost:5173`
+1. **Context-Aware AI Chat:** Retains full session history and conversation context, allowing natural follow-up prompts (e.g., generating code and then asking to style it or refactor it without resending the snippet).
+2. **Interactive Code Workspaces (`EditableCodeBlock`):** Features live syntax highlighting, copy-to-clipboard functionality, and an inline **Edit/Save** feature for direct code modifications inside chat responses.
+3. **Multi-Mode Operations:** Supports distinct developer actions:
+   - **Generate:** Write clean, production-ready code across multiple languages (JavaScript, PHP/Laravel, HTML, CSS, React, Python) with auto-detection.
+   - **Explain:** Deeply analyze and break down code logic and architecture.
+   - **Refactor:** Optimize and clean up inefficient code snippets.
+   - **Security Audit:** Scan code for vulnerabilities, logic errors, and security recommendations.
+4. **Session & Folder Organization:** Group workspaces into custom folders with local persistence and secure authentication management.
 
 ---
 
-## 📸 Pamjet nga Aplikacioni (Screenshots Guide)
+## ⚙️ Installation & Local Setup Guide
 
-1. `screenshot-login.png` - Pamja e dritares së sigurisë për Login/Register.
+Follow these steps to set up and run the project locally on your machine:
 
-2. `screenshot-dashboard.png` - Pamja e plotë e Dashboard-it të zi me fushën e inputit dhe rezultatin e ngjyrosur me Syntax Highlighting.
-3. `screenshot-mobile.png` - Pamja responsive e aplikacionit siç duket në celular me sidebar-in e fshehur.
+### Prerequisites
+Make sure you have the following installed:
+- PHP & Composer
+- Node.js & npm
+- MySQL (via Laragon)
+- [Ollama](https://ollama.com/) installed and running locally.
+
+### 1. Clone the Repository
+```bash
+git clone [https://github.com/your-username/ai-code-helper-blendi.git](https://github.com/your-username/ai-code-helper-blendi.git)
+cd ai-code-helper-blendi
+2. Set Up the Backend (Laravel)
+Navigate to the backend directory, install dependencies, configure environment, and start the server:
+
+Bash
+cd backend
+composer install
+cp .env.example .env
+php artisan key:generate
+Configure your database credentials in .env (ensuring MySQL runs on your preferred port, e.g., 3307 or 3306), then run migrations:
+
+Bash
+php artisan migrate
+php artisan serve --port=8085
+3. Set Up the Frontend (React & Vite)
+Open a new terminal window, navigate to the frontend directory, install dependencies, and start the development server:
+
+Bash
+cd frontend
+npm install
+npm run dev
+4. Configure & Run the Local AI Model (Ollama)
+Ensure Ollama is running in the background and the required model is pulled:
+
+Bash
+ollama run qwen2.5-coder:7b
+(The backend communicates with Ollama locally via http://127.0.0.1:11434).
+
+🎯 Usage Demo Flow (For Presentation)
+Open the application in your browser (http://localhost:5173).
+
+Log in or create a session.
+
+Select the Generate mode and request a component or snippet (e.g., "Create a simple HTML page with a modern header").
+
+Use the Edit button on the code block to modify the code directly, or ask a follow-up question leveraging the Context Memory (e.g., "Now add CSS styling for a dark theme").
+
+Test the Explain, Refactor, and Security Audit modes on existing code snippets.
+
+👨‍💻 Author
+Developed by Blend Rexhepaj
+
+Computer Science Undergraduate at UBT College
+
+
+---
+
+### Si ta shtosh në projektin tënd në Git:
+Pasi ta krijosh skedarin `README.md` në rrënjë të projektit dhe ta ruash, ekzekuto këto komanda në terminal për ta përditësuar në GitHub:
+```bash
+git add README.md
+git commit -m "Add detailed professional README for project presentation"
+git push origin main
